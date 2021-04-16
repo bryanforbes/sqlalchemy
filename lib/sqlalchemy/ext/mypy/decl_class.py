@@ -6,7 +6,6 @@
 # the MIT License: http://www.opensource.org/licenses/mit-license.php
 
 from typing import Optional
-from typing import Union
 
 from mypy import nodes
 from mypy.nodes import AssignmentStmt
@@ -20,7 +19,6 @@ from mypy.nodes import PlaceholderNode
 from mypy.nodes import RefExpr
 from mypy.nodes import StrExpr
 from mypy.nodes import SymbolNode
-from mypy.nodes import SymbolTableNode
 from mypy.nodes import TempNode
 from mypy.nodes import TypeInfo
 from mypy.nodes import Var
@@ -46,15 +44,13 @@ def _scan_declarative_assignments_and_apply_types(
     cls: ClassDef,
     api: SemanticAnalyzerPluginInterface,
     is_mixin_scan: bool = False,
-) -> Optional[util.DeclClassApplied]:
+) -> None:
+    if cls.fullname.startswith("builtins."):
+        return
 
-    info = util._info_for_cls(cls, api)
-
-    if cls.fullname.startswith("builtins"):
-        return None
-    elif "_sa_decl_class_applied" in info.metadata:
+    if "_sa_decl_class_applied" in cls.info.metadata:
         cls_metadata = util.DeclClassApplied.deserialize(
-            info.metadata["_sa_decl_class_applied"], api
+            cls.info.metadata["_sa_decl_class_applied"], api
         )
 
         # ensure that a class that's mapped is always picked up by
@@ -70,111 +66,21 @@ def _scan_declarative_assignments_and_apply_types(
 
             apply._re_apply_declarative_assignments(cls, api, cls_metadata)
 
-        return cls_metadata
+        return
 
     cls_metadata = util.DeclClassApplied(not is_mixin_scan, False, [], [])
 
-    if not cls.defs.body:
-        # when we get a mixin class from another file, the body is
-        # empty (!) but the names are in the symbol table.  so use that.
-
-        for sym_name, sym in info.names.items():
-            _scan_symbol_table_entry(cls, api, sym_name, sym, cls_metadata)
-    else:
-        for stmt in util._flatten_typechecking(cls.defs.body):
-            if isinstance(stmt, AssignmentStmt):
-                _scan_declarative_assignment_stmt(cls, api, stmt, cls_metadata)
-            elif isinstance(stmt, Decorator):
-                _scan_declarative_decorator_stmt(cls, api, stmt, cls_metadata)
+    for stmt in util._flatten_typechecking(cls.defs.body):
+        if isinstance(stmt, AssignmentStmt):
+            _scan_declarative_assignment_stmt(cls, api, stmt, cls_metadata)
+        elif isinstance(stmt, Decorator):
+            _scan_declarative_decorator_stmt(cls, api, stmt, cls_metadata)
     _scan_for_mapped_bases(cls, api, cls_metadata)
 
     if not is_mixin_scan:
         apply._add_additional_orm_attributes(cls, api, cls_metadata)
 
-    info.metadata["_sa_decl_class_applied"] = cls_metadata.serialize()
-
-    return cls_metadata
-
-
-def _scan_symbol_table_entry(
-    cls: ClassDef,
-    api: SemanticAnalyzerPluginInterface,
-    name: str,
-    value: SymbolTableNode,
-    cls_metadata: util.DeclClassApplied,
-) -> None:
-    """Extract mapping information from a SymbolTableNode that's in the
-    type.names dictionary.
-
-    """
-    value_type = get_proper_type(value.type)
-    if not isinstance(value_type, Instance):
-        return
-
-    left_hand_explicit_type = None
-    type_id = names._type_id_for_named_node(value_type.type)
-    # type_id = names._type_id_for_unbound_type(value.type.type, cls, api)
-
-    err = False
-
-    # TODO: this is nearly the same logic as that of
-    # _scan_declarative_decorator_stmt, likely can be merged
-    if type_id in {
-        names.MAPPED,
-        names.RELATIONSHIP,
-        names.COMPOSITE_PROPERTY,
-        names.MAPPER_PROPERTY,
-        names.SYNONYM_PROPERTY,
-        names.COLUMN_PROPERTY,
-    }:
-        if value_type.args:
-            left_hand_explicit_type = get_proper_type(value_type.args[0])
-        else:
-            err = True
-    elif type_id is names.COLUMN:
-        if not value_type.args:
-            err = True
-        else:
-            typeengine_arg: Union[ProperType, TypeInfo] = get_proper_type(
-                value_type.args[0]
-            )
-            if isinstance(typeengine_arg, Instance):
-                typeengine_arg = typeengine_arg.type
-
-            if isinstance(typeengine_arg, (UnboundType, TypeInfo)):
-                sym = api.lookup_qualified(typeengine_arg.name, typeengine_arg)
-                if sym is not None and isinstance(sym.node, TypeInfo):
-                    if names._has_base_type_id(sym.node, names.TYPEENGINE):
-
-                        left_hand_explicit_type = UnionType(
-                            [
-                                infer._extract_python_type_from_typeengine(
-                                    api, sym.node, []
-                                ),
-                                NoneType(),
-                            ]
-                        )
-                    else:
-                        util.fail(
-                            api,
-                            "Column type should be a TypeEngine "
-                            "subclass not '{}'".format(sym.node.fullname),
-                            value_type,
-                        )
-
-    if err:
-        msg = (
-            "Can't infer type from attribute {} on class {}. "
-            "please specify a return type from this function that is "
-            "one of: Mapped[<python type>], relationship[<target class>], "
-            "Column[<TypeEngine>], MapperProperty[<python type>]"
-        )
-        util.fail(api, msg.format(name, cls.name), cls)
-
-        left_hand_explicit_type = AnyType(TypeOfAny.special_form)
-
-    if left_hand_explicit_type is not None:
-        cls_metadata.mapped_attr_names.append((name, left_hand_explicit_type))
+    cls.info.metadata["_sa_decl_class_applied"] = cls_metadata.serialize()
 
 
 def _scan_declarative_decorator_stmt(
@@ -290,9 +196,7 @@ def _scan_declarative_decorator_stmt(
             util._unbound_to_instance(api, left_hand_explicit_type)
         )
 
-    left_node.node.type = api.named_type(
-        "__sa_Mapped", [left_hand_explicit_type]
-    )
+    left_node.node.type = util._mapped_instance(api, [left_hand_explicit_type])
 
     # this will ignore the rvalue entirely
     # rvalue = TempNode(AnyType(TypeOfAny.special_form))
@@ -480,25 +384,15 @@ def _scan_for_mapped_bases(
 
     """
 
-    info = util._info_for_cls(cls, api)
-
-    baseclasses = list(info.bases)
+    baseclasses = list(cls.info.bases)
 
     while baseclasses:
         base: Instance = baseclasses.pop(0)
 
-        if base.type.fullname.startswith("builtins"):
+        if base.type.fullname.startswith("builtins."):
             continue
 
-        # scan each base for mapped attributes.  if they are not already
-        # scanned (but have all their type info), that means they are unmapped
-        # mixins
-        base_decl_class_applied = (
-            _scan_declarative_assignments_and_apply_types(
-                base.type.defn, api, is_mixin_scan=True
-            )
-        )
-
-        if base_decl_class_applied is not None:
+        if "_sa_decl_class_applied" in base.type.metadata:
             cls_metadata.mapped_mro.append(base)
+
         baseclasses.extend(base.type.bases)

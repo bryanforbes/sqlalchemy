@@ -374,8 +374,8 @@ def _infer_type_from_left_and_inferred_right(
         orig_python_type_for_type = python_type_for_type
 
     if not is_subtype(left_hand_explicit_type, python_type_for_type):
-        effective_type = api.named_type(
-            "__sa_Mapped", [orig_python_type_for_type]
+        effective_type = util._mapped_instance(
+            api, [orig_python_type_for_type]
         )
 
         msg = (
@@ -444,7 +444,7 @@ def _infer_type_from_left_hand_type_only(
         )
         util.fail(api, msg.format(node.name), node)
 
-        return api.named_type("__sa_Mapped", [AnyType(TypeOfAny.special_form)])
+        return util._mapped_instance(api, [AnyType(TypeOfAny.special_form)])
 
     else:
         # use type from the left hand side

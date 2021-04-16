@@ -107,7 +107,7 @@ def _re_apply_declarative_assignments(
             typ = mapped_attr_lookup[stmt.lvalues[0].name]
             left_node = stmt.lvalues[0].node
 
-            left_node.type = api.named_type("__sa_Mapped", [typ])
+            left_node.type = util._mapped_instance(api, [typ])
 
 
 def _apply_type_to_mapped_statement(
@@ -139,13 +139,11 @@ def _apply_type_to_mapped_statement(
     assert isinstance(left_node, Var)
 
     if left_hand_explicit_type is not None:
-        left_node.type = api.named_type(
-            "__sa_Mapped", [left_hand_explicit_type]
-        )
+        left_node.type = util._mapped_instance(api, [left_hand_explicit_type])
     else:
         lvalue.is_inferred_def = False
-        left_node.type = api.named_type(
-            "__sa_Mapped",
+        left_node.type = util._mapped_instance(
+            api,
             [] if python_type_for_type is None else [python_type_for_type],
         )
 
@@ -175,8 +173,7 @@ def _add_additional_orm_attributes(
 ) -> None:
     """Apply __init__, __table__ and other attributes to the mapped class."""
 
-    info = util._info_for_cls(cls, api)
-    if "__init__" not in info.names and cls_metadata.is_mapped:
+    if "__init__" not in cls.info.names and cls_metadata.is_mapped:
         mapped_attr_names = {n: t for n, t in cls_metadata.mapped_attr_names}
 
         for mapped_base in cls_metadata.mapped_mro:
@@ -200,7 +197,7 @@ def _add_additional_orm_attributes(
             )
         add_method_to_class(api, cls, "__init__", arguments, NoneTyp())
 
-    if "__table__" not in info.names and cls_metadata.has_table:
+    if "__table__" not in cls.info.names and cls_metadata.has_table:
         _apply_placeholder_attr_to_class(
             api, cls, "sqlalchemy.sql.schema.Table", "__table__"
         )

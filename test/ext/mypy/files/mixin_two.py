@@ -7,6 +7,7 @@ from sqlalchemy.orm import deferred
 from sqlalchemy.orm import Mapped
 from sqlalchemy.orm import registry
 from sqlalchemy.orm import relationship
+from sqlalchemy.orm.decl_api import declarative_mixin
 from sqlalchemy.orm.decl_api import declared_attr
 from sqlalchemy.orm.interfaces import MapperProperty
 from sqlalchemy.sql.schema import ForeignKey
@@ -25,6 +26,7 @@ def some_other_decorator(fn: Callable[..., None]) -> Callable[..., None]:
     return fn
 
 
+@declarative_mixin
 class HasAMixin:
     @declared_attr
     def a(cls) -> Mapped["A"]:

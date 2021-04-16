@@ -212,3 +212,39 @@ def _info_for_cls(
         return sym.node
 
     return cls.info
+
+
+def _set_info_metadata(info: TypeInfo, key: str, data: Any) -> None:
+    info.metadata.setdefault("sqlalchemy", {})[key] = data
+
+
+def _get_info_metadata(info: TypeInfo, key: str) -> Optional[Any]:
+    return info.metadata.get("sqlalchemy", {}).get(key, None)
+
+
+def _get_info_mro_metadata(info: TypeInfo, key: str) -> Optional[Any]:
+    if info.mro:
+        for base in info.mro:
+            metadata = _get_info_metadata(base, key)
+            if metadata is not None:
+                return metadata
+    return None
+
+
+def _set_declarative_base(info: TypeInfo) -> None:
+    _set_info_metadata(info, "declarative_base", True)
+
+
+def _is_declarative(info: TypeInfo) -> bool:
+    declarative_base = _get_info_mro_metadata(info, "declarative_base")
+    return declarative_base is not None
+
+
+def _mapped_instance(
+    api: SemanticAnalyzerPluginInterface, args: Optional[List[Type]] = None
+) -> Instance:
+    sym = api.lookup_fully_qualified_or_none(
+        "sqlalchemy.orm.attributes.Mapped"
+    )
+    assert sym is not None and isinstance(sym.node, TypeInfo)
+    return Instance(sym.node, args if args is not None else [])
