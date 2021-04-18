@@ -2,7 +2,6 @@ from sqlalchemy import Column
 from sqlalchemy import Integer
 from sqlalchemy import String
 from sqlalchemy.orm import declarative_base
-from sqlalchemy.orm import declarative_mixin
 from sqlalchemy.orm import registry
 
 
@@ -12,7 +11,6 @@ reg: registry = registry()
 Base = declarative_base()
 
 
-@declarative_mixin
 class HasUpdatedAt:
     updated_at = Column(Integer)
 

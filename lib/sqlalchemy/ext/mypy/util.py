@@ -10,6 +10,7 @@ from typing import Type as TypingType
 from typing import TypeVar
 from typing import Union
 
+from mypy.checker import TypeChecker
 from mypy.nodes import CallExpr
 from mypy.nodes import ClassDef
 from mypy.nodes import CLASSDEF_NO_INFO
@@ -20,10 +21,14 @@ from mypy.nodes import NameExpr
 from mypy.nodes import Statement
 from mypy.nodes import SymbolTableNode
 from mypy.nodes import TypeInfo
+from mypy.plugin import AttributeContext
 from mypy.plugin import ClassDefContext
 from mypy.plugin import DynamicClassDefContext
+from mypy.plugin import FunctionContext
+from mypy.plugin import MethodContext
 from mypy.plugin import SemanticAnalyzerPluginInterface
 from mypy.plugins.common import deserialize_and_fixup_type
+from mypy.semanal import SemanticAnalyzer
 from mypy.types import Instance
 from mypy.types import NoneType
 from mypy.types import ProperType
@@ -33,6 +38,36 @@ from mypy.types import UnionType
 
 
 _TArgType = TypeVar("_TArgType", bound=Union[CallExpr, NameExpr])
+
+
+class SQLAlchemyAttribute:
+    def __init__(
+        self,
+        name: str,
+        line: int,
+        column: int,
+        typ: Optional[Type],
+        info: TypeInfo,
+    ) -> None:
+        self.name = name
+        self.line = line
+        self.column = column
+        self.type = typ
+        self.info = info
+
+    def serialize(self) -> JsonDict:
+        assert self.type
+        return {
+            "name": self.name,
+            "line": self.line,
+            "column": self.column,
+            "type": self.type.serialize(),
+        }
+
+
+class SQLAlchemyMetadata:
+    def __init__(self) -> None:
+        ...
 
 
 class DeclClassApplied:
@@ -248,3 +283,19 @@ def _mapped_instance(
     )
     assert sym is not None and isinstance(sym.node, TypeInfo)
     return Instance(sym.node, args if args is not None else [])
+
+
+def _get_semanal_api(
+    ctx: Union[ClassDefContext, DynamicClassDefContext]
+) -> SemanticAnalyzer:
+    if not isinstance(ctx.api, SemanticAnalyzer):
+        raise ValueError("Not a SemanticAnalyzer")
+    return ctx.api
+
+
+def _get_typechecker_api(
+    ctx: Union[AttributeContext, MethodContext, FunctionContext]
+) -> TypeChecker:
+    if not isinstance(ctx.api, TypeChecker):
+        raise ValueError("Not a TypeChecker")
+    return ctx.api

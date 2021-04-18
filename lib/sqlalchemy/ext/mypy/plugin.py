@@ -30,6 +30,7 @@ from mypy.nodes import TypeInfo
 from mypy.plugin import AttributeContext
 from mypy.plugin import ClassDefContext
 from mypy.plugin import DynamicClassDefContext
+from mypy.plugin import FunctionContext
 from mypy.plugin import Plugin
 from mypy.plugin import SemanticAnalyzerPluginInterface
 from mypy.types import get_proper_type
@@ -98,22 +99,30 @@ class SQLAlchemyPlugin(Plugin):
 
         return None
 
-    # def get_function_hook(
-    #     self, fullname: str
-    # ) -> Optional[Callable[[FunctionContext], Type]]:
-    #     if fullname.endswith('.as_declarative'):
-    #         def hook(ctx: FunctionContext) -> Type:
-    #             import ipdb; ipdb.set_trace()
-    #             return ctx.default_return_type
-    #         return hook
+    def get_function_hook(
+        self, fullname: str
+    ) -> Optional[Callable[[FunctionContext], Type]]:
+        if fullname.endswith(".as_declarative"):
 
-    #     if names._type_id_for_fullname(fullname) is names.COLUMN:
-    #         def hook(ctx: FunctionContext) -> Type:
-    #             import ipdb; ipdb.set_trace()
-    #             return ctx.default_return_type
-    #         return hook
+            def hook(ctx: FunctionContext) -> Type:
+                import ipdb
 
-    #     return None
+                ipdb.set_trace()
+                return ctx.default_return_type
+
+            return hook
+
+        if names._type_id_for_fullname(fullname) is names.COLUMN:
+
+            def hook(ctx: FunctionContext) -> Type:
+                import ipdb
+
+                ipdb.set_trace()
+                return ctx.default_return_type
+
+            return hook
+
+        return None
 
     def get_attribute_hook(
         self, fullname: str
