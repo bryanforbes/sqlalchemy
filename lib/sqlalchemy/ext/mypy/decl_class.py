@@ -40,6 +40,115 @@ from . import names
 from . import util
 
 
+class NotReady(Exception):
+    pass
+
+
+def _get_metadata_for_class(
+    api: SemanticAnalyzerPluginInterface,
+    cls: ClassDef,
+    *,
+    is_base: bool = True
+) -> Optional[util.SQLAlchemyMetadata]:
+    metadata = util.SQLAlchemyMetadata(cls.info, is_base=is_base)
+
+    try:
+        for stmt in util._flatten_typechecking(cls.defs.body):
+            if isinstance(stmt, AssignmentStmt):
+                _parse_assignment_for_metadata(api, cls, stmt, metadata)
+            elif isinstance(stmt, Decorator):
+                pass
+    except NotReady:
+        return None
+    else:
+        return metadata
+
+
+def _parse_assignment_for_metadata(
+    api: SemanticAnalyzerPluginInterface,
+    cls: ClassDef,
+    stmt: AssignmentStmt,
+    metadata: util.SQLAlchemyMetadata,
+) -> None:
+    lvalue = stmt.lvalues[0]
+    if not isinstance(lvalue, NameExpr):
+        return
+
+    sym = cls.info.names.get(lvalue.name)
+    if sym is None:
+        # This name is likely blocked by a star import.
+        # We don't need to defer because defer() is
+        # already called by mark_incomplete().
+        return
+
+    node = sym.node
+
+    if isinstance(node, PlaceholderNode):
+        # This node is not ready yet.
+        raise NotReady()
+
+    assert isinstance(node, Var)
+
+    # x: ClassVar[int] is ignored.
+    if node.is_classvar:
+        return
+
+    if node.name == "__abstract__":
+        if api.parse_bool(stmt.rvalue) is True:
+            metadata.is_base = True
+        return
+    if node.name == "__tablename__":
+        metadata.has_table = True
+        return
+    if node.name.startswith("__"):
+        return
+    if node.name == "_mypy_mapped_attrs":
+        if not isinstance(stmt.rvalue, ListExpr):
+            util.fail(
+                api,
+                "_mypy_mapped_attrs is expected to be a list",
+                stmt,
+            )
+        else:
+            for item in stmt.rvalue.items:
+                if isinstance(item, (NameExpr, StrExpr)):
+                    apply._apply_mypy_mapped_attr(cls, api, item, metadata)
+        return
+
+    left_hand_mapped_type: Optional[Type] = None
+    left_hand_explicit_type: Optional[ProperType] = None
+
+    if not node.is_inferred:
+        node_type = get_proper_type(node.type)
+        if (
+            isinstance(node_type, Instance)
+            and names._type_id_for_named_node(node_type.type) is names.MAPPED
+        ):
+            left_hand_explicit_type = get_proper_type(node_type.args[0])
+            left_hand_mapped_type = node_type
+        else:
+            left_hand_explicit_type = node_type
+            left_hand_mapped_type = None
+
+    if isinstance(stmt.rvalue, TempNode) and left_hand_mapped_type is not None:
+        python_type_for_type = left_hand_explicit_type
+    elif isinstance(stmt.rvalue, CallExpr) and isinstance(
+        stmt.rvalue.callee, NameExpr
+    ):
+        python_type_for_type = infer._infer_type_from_right_hand_nameexpr(
+            api, stmt, node, left_hand_explicit_type, stmt.rvalue.callee
+        )
+
+    if python_type_for_type is None:
+        return
+
+    metadata.attributes.append(
+        util.SQLAlchemyAttribute(
+            node.name, stmt.line, stmt.column, python_type_for_type, cls.info
+        )
+    )
+
+
 def _scan_declarative_assignments_and_apply_types(
     cls: ClassDef,
     api: SemanticAnalyzerPluginInterface,

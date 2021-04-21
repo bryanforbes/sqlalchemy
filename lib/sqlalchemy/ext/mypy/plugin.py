@@ -30,7 +30,6 @@ from mypy.nodes import TypeInfo
 from mypy.plugin import AttributeContext
 from mypy.plugin import ClassDefContext
 from mypy.plugin import DynamicClassDefContext
-from mypy.plugin import FunctionContext
 from mypy.plugin import Plugin
 from mypy.plugin import SemanticAnalyzerPluginInterface
 from mypy.types import get_proper_type
@@ -99,30 +98,30 @@ class SQLAlchemyPlugin(Plugin):
 
         return None
 
-    def get_function_hook(
-        self, fullname: str
-    ) -> Optional[Callable[[FunctionContext], Type]]:
-        if fullname.endswith(".as_declarative"):
+    # def get_function_hook(
+    #     self, fullname: str
+    # ) -> Optional[Callable[[FunctionContext], Type]]:
+    #     if fullname.endswith(".as_declarative"):
 
-            def hook(ctx: FunctionContext) -> Type:
-                import ipdb
+    #         def hook(ctx: FunctionContext) -> Type:
+    #             import ipdb
 
-                ipdb.set_trace()
-                return ctx.default_return_type
+    #             ipdb.set_trace()
+    #             return ctx.default_return_type
 
-            return hook
+    #         return hook
 
-        if names._type_id_for_fullname(fullname) is names.COLUMN:
+    #     if names._type_id_for_fullname(fullname) is names.COLUMN:
 
-            def hook(ctx: FunctionContext) -> Type:
-                import ipdb
+    #         def hook(ctx: FunctionContext) -> Type:
+    #             import ipdb
 
-                ipdb.set_trace()
-                return ctx.default_return_type
+    #             ipdb.set_trace()
+    #             return ctx.default_return_type
 
-            return hook
+    #         return hook
 
-        return None
+    #     return None
 
     def get_attribute_hook(
         self, fullname: str
@@ -158,7 +157,8 @@ def _dynamic_class_hook(ctx: DynamicClassDefContext) -> None:
 
     cls_arg = util._get_callexpr_kwarg(ctx.call, "cls", expr_types=(NameExpr,))
     if cls_arg is not None and isinstance(cls_arg.node, TypeInfo):
-        util._set_declarative_base(cls_arg.node.defn.info)
+        cls_metadata = util.SQLAlchemyMetadata(cls_arg.node, is_base=True)
+        cls_arg.node.metadata["sqlalchemy"] = cls_metadata.serialize()
         decl_class._scan_declarative_assignments_and_apply_types(
             cls_arg.node.defn, ctx.api, is_mixin_scan=True
         )
@@ -178,7 +178,9 @@ def _dynamic_class_hook(ctx: DynamicClassDefContext) -> None:
         info.bases = [obj]
         info.fallback_to_any = True
 
-    util._set_declarative_base(info)
+    info.metadata["sqlalchemy"] = util.SQLAlchemyMetadata(
+        info, is_base=True
+    ).serialize()
     ctx.api.add_symbol_table_node(ctx.name, SymbolTableNode(GDEF, info))
 
 

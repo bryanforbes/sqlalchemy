@@ -64,10 +64,56 @@ class SQLAlchemyAttribute:
             "type": self.type.serialize(),
         }
 
+    @classmethod
+    def deserialize(
+        cls,
+        info: TypeInfo,
+        data: JsonDict,
+        api: SemanticAnalyzerPluginInterface,
+    ) -> "SQLAlchemyAttribute":
+        data = data.copy()
+        typ = deserialize_and_fixup_type(data.pop("type"), api)
+        return cls(typ=typ, info=info, **data)
+
 
 class SQLAlchemyMetadata:
-    def __init__(self) -> None:
-        ...
+    def __init__(
+        self,
+        info: TypeInfo,
+        *,
+        is_base: bool = False,
+        has_table: bool = False,
+        attributes: List[SQLAlchemyAttribute] = [],
+    ) -> None:
+        self.info = info
+        self.is_base = is_base
+        self.has_table = has_table
+        self.attributes = attributes
+
+    def serialize(self) -> JsonDict:
+        return {
+            "is_base": self.is_base,
+            "has_table": self.has_table,
+            "attributes": [attr.serialize() for attr in self.attributes],
+        }
+
+    @classmethod
+    def deserialize(
+        cls,
+        info: TypeInfo,
+        data: JsonDict,
+        api: SemanticAnalyzerPluginInterface,
+    ) -> "SQLAlchemyMetadata":
+        data = data.copy()
+        attributes: List[JsonDict] = data.pop("attributes")
+        return cls(
+            info,
+            attributes=[
+                SQLAlchemyAttribute.deserialize(info, attr, api)
+                for attr in attributes
+            ],
+            **data
+        )
 
 
 class DeclClassApplied:
@@ -272,7 +318,8 @@ def _set_declarative_base(info: TypeInfo) -> None:
 
 def _is_declarative(info: TypeInfo) -> bool:
     declarative_base = _get_info_mro_metadata(info, "declarative_base")
-    return declarative_base is not None
+    is_base = _get_info_mro_metadata(info, "is_base")
+    return declarative_base is not None and is_base is not None
 
 
 def _mapped_instance(

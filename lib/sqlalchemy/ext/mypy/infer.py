@@ -35,6 +35,44 @@ from . import names
 from . import util
 
 
+def _infer_type_from_right_hand_nameexpr(
+    api: SemanticAnalyzerPluginInterface,
+    stmt: AssignmentStmt,
+    node: Var,
+    left_hand_explicit_type: Optional[ProperType],
+    infer_from_right_side: NameExpr,
+) -> Optional[ProperType]:
+    assert isinstance(stmt.rvalue, CallExpr)
+
+    type_id = names._type_id_for_callee(infer_from_right_side)
+
+    if type_id is None:
+        return None
+    elif type_id is names.COLUMN:
+        python_type_for_type = _infer_type_from_decl_column(
+            api, stmt, node, left_hand_explicit_type, stmt.rvalue
+        )
+    elif type_id is names.RELATIONSHIP:
+        python_type_for_type = _infer_type_from_relationship(
+            api, stmt, node, left_hand_explicit_type
+        )
+    elif type_id is names.COLUMN_PROPERTY:
+        python_type_for_type = _infer_type_from_decl_column_property(
+            api, stmt, node, left_hand_explicit_type
+        )
+    elif type_id is names.SYNONYM_PROPERTY:
+        python_type_for_type = _infer_type_from_left_hand_type_only(
+            api, node, left_hand_explicit_type
+        )
+    elif type_id is names.COMPOSITE_PROPERTY:
+        python_type_for_type = _infer_type_from_decl_composite_property(
+            api, stmt, node, left_hand_explicit_type
+        )
+    else:
+        return None
+    return python_type_for_type
+
+
 def _infer_type_from_relationship(
     api: SemanticAnalyzerPluginInterface,
     stmt: AssignmentStmt,
